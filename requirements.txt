@@ -1,0 +1,42 @@
+# Core Data Processing
+pandas==2.1.4
+numpy==1.26.2
+openpyxl==3.1.2
+xlrd>=2.0.1  # For .xls files
+
+# Database
+sqlalchemy==2.0.23
+
+# Web Framework
+streamlit==1.29.0
+
+# Visualization
+plotly==5.18.0
+altair==5.2.0
+
+# Configuration
+pyyaml==6.0.1
+python-dotenv==1.0.0
+
+# HTTP Requests
+requests==2.31.0
+
+# Data Validation
+pydantic==2.5.3
+
+# Logging
+loguru==0.7.2
+
+# Time Processing
+python-dateutil==2.8.2
+
+# String Similarity
+fuzzywuzzy==0.18.0
+python-Levenshtein==0.25.0
+
+# Alipay SDK
+alipay-sdk-python>=3.7.0
+cryptography>=41.0.0
+
+# Utilities
+tqdm==4.66.1

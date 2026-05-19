@@ -1,0 +1,181 @@
+# 平台账单解析配置
+
+platforms:
+  alipay:
+    name: "支付宝"
+    encoding: "gbk"
+    file_extensions:
+      - csv
+    date_format: "%Y-%m-%d %H:%M:%S"
+    skip_rows: 0  # CSV头部跳过行数
+
+    # 字段映射：原始字段名 -> 标准字段名
+    column_mapping:
+      "交易时间": "date"
+      "交易创建时间": "date"
+      "交易分类": "original_category"
+      "交易对方": "counterparty"
+      "对方账号": "counterparty_account"
+      "商品说明": "description"
+      "收/支": "type"
+      "金额": "amount"
+      "金额（元）": "amount"
+      "收/付款方式": "payment_method"
+      "交易状态": "status"
+      "交易订单号": "transaction_id"
+      "商家订单号": "merchant_order_id"
+      "备注": "note"
+
+    # 类型映射：原始值 -> 标准值
+    type_mapping:
+      "收入": "income"
+      "支出": "expense"
+      "不计收支": "internal"
+
+    # 状态过滤：只保留这些状态的交易
+    valid_statuses:
+      - "交易成功"
+      - "成功"
+      - "支付成功"
+      - "提现成功"
+
+    # 检测特征：用于自动识别平台
+    detection_features:
+      header_keywords:
+        - "支付宝"
+        - "交易时间"
+        - "交易对方"
+      column_names:
+        - "交易时间"
+        - "商品说明"
+        - "收/支"
+
+  wechat:
+    name: "微信支付"
+    encoding: "utf-8"
+    file_extensions:
+      - csv
+      - xlsx
+    date_format: "%Y-%m-%d %H:%M:%S"
+    skip_rows: 16  # 微信账单前16行是说明
+
+    column_mapping:
+      "交易时间": "date"
+      "交易类型": "original_category"
+      "交易对方": "counterparty"
+      "商品": "description"
+      "收/支": "type"
+      "金额(元)": "amount"
+      "支付方式": "payment_method"
+      "当前状态": "status"
+      "交易单号": "transaction_id"
+      "商户单号": "merchant_order_id"
+      "备注": "note"
+
+    type_mapping:
+      "收入": "income"
+      "支出": "expense"
+      "/": "income"  # 微信有时用斜杠表示
+
+    valid_statuses:
+      - "支付成功"
+      - "已存入零钱"
+      - "朋友已收钱"
+
+    detection_features:
+      header_keywords:
+        - "微信支付"
+        - "WeChat Pay"
+      column_names:
+        - "交易时间"
+        - "商品"
+        - "金额(元)"
+
+  bank:
+    name: "银行卡"
+    encoding: "utf-8"
+    file_extensions:
+      - csv
+      - xlsx
+      - xls
+    date_format: "%Y-%m-%d"
+    skip_rows: 0
+
+    column_mapping:
+      "交易日期": "date"
+      "交易时间": "time"
+      "摘要": "description"
+      "交易金额": "amount"
+      "账户余额": "balance"
+      "对方账号": "counterparty_account"
+      "对方户名": "counterparty"
+      "备注": "note"
+
+    # 银行通常用正负数表示收支
+    amount_sign_determines_type: true
+
+    valid_statuses: []  # 银行账单通常没有状态字段
+
+    detection_features:
+      header_keywords:
+        - "银行"
+        - "交易日期"
+        - "账户余额"
+      column_names:
+        - "交易日期"
+        - "摘要"
+        - "交易金额"
+
+  meituan:
+    name: "美团"
+    encoding: "utf-8"
+    file_extensions:
+      - csv
+      - xlsx
+    date_format: "%Y-%m-%d %H:%M:%S"
+    skip_rows: 0
+
+    column_mapping:
+      "订单时间": "date"
+      "订单内容": "description"
+      "商家名称": "counterparty"
+      "实付金额": "amount"
+      "订单号": "transaction_id"
+      "订单状态": "status"
+
+    # 美团订单默认都是支出
+    default_type: "expense"
+
+    valid_statuses:
+      - "订单完成"
+      - "已完成"
+
+    detection_features:
+      header_keywords:
+        - "美团"
+        - "订单时间"
+      column_names:
+        - "订单时间"
+        - "商家名称"
+        - "实付金额"
+
+# 通用配置
+common:
+  # 金额清洗规则
+  amount_cleaning:
+    remove_chars: ["¥", "￥", ",", " "]  # 移除这些字符
+    decimal_separator: "."
+
+  # 日期解析备选格式
+  date_formats:
+    - "%Y-%m-%d %H:%M:%S"
+    - "%Y/%m/%d %H:%M:%S"
+    - "%Y-%m-%d"
+    - "%Y/%m/%d"
+    - "%Y年%m月%d日 %H:%M:%S"
+    - "%Y年%m月%d日"
+
+  # 自动检测配置
+  auto_detection:
+    sample_rows: 5  # 读取前5行用于检测
+    min_confidence: 0.7  # 最小置信度阈值

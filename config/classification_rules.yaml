@@ -1,0 +1,229 @@
+# 家庭财务分类规则配置
+# 优先级：规则从上到下匹配，越靠前优先级越高
+
+categories:
+  餐饮美食:
+    keywords:
+      - 餐厅
+      - 饭店
+      - 外卖
+      - 美团外卖
+      - 饿了么
+      - 麦当劳
+      - 肯德基
+      - 星巴克
+      - 咖啡
+      - 奶茶
+      - 火锅
+      - 烧烤
+    merchants:
+      - 星巴克
+      - 肯德基
+      - 麦当劳
+      - 必胜客
+      - 海底捞
+      - 喜茶
+      - 奈雪
+    patterns:
+      - '.*餐.*'
+      - '.*食.*'
+      - '.*饮.*'
+    exclude_keywords: []
+
+  交通出行:
+    keywords:
+      - 滴滴
+      - 打车
+      - 出租车
+      - 地铁
+      - 公交
+      - 加油
+      - 停车
+      - 高速
+      - ETC
+      - 火车票
+      - 机票
+      - 共享单车
+    merchants:
+      - 滴滴出行
+      - 中国石化
+      - 中国石油
+    patterns:
+      - '.*出行.*'
+      - '.*交通.*'
+    exclude_keywords: []
+
+  购物消费:
+    keywords:
+      - 淘宝
+      - 天猫
+      - 京东
+      - 拼多多
+      - 超市
+      - 商场
+      - 购物
+      - 服装
+      - 鞋子
+      - 化妆品
+    merchants:
+      - 淘宝
+      - 京东
+      - 天猫
+      - 拼多多
+    patterns:
+      - '.*商城.*'
+      - '.*超市.*'
+    exclude_keywords:
+      - 话费
+      - 充值
+      - 水电
+
+  居家生活:
+    keywords:
+      - 房租
+      - 水费
+      - 电费
+      - 燃气费
+      - 物业费
+      - 家政
+      - 维修
+      - 家具
+      - 家电
+      - 日用品
+      - 买菜
+      - 菜市场
+      - 生鲜
+    merchants: []
+    patterns:
+      - '.*物业.*'
+      - '.*水电.*'
+    exclude_keywords: []
+
+  文化娱乐:
+    keywords:
+      - 电影
+      - 演出
+      - 门票
+      - KTV
+      - 游戏
+      - 会员
+      - 视频会员
+      - 音乐会员
+      - 健身
+      - 运动
+      - 旅游
+    merchants:
+      - 腾讯视频
+      - 爱奇艺
+      - 优酷
+      - QQ音乐
+      - 网易云音乐
+    patterns:
+      - '.*娱乐.*'
+      - '.*游戏.*'
+    exclude_keywords: []
+
+  医疗健康:
+    keywords:
+      - 医院
+      - 药店
+      - 体检
+      - 挂号
+      - 医药
+      - 看病
+      - 治疗
+      - 保健品
+    merchants: []
+    patterns:
+      - '.*医.*'
+      - '.*药.*'
+    exclude_keywords: []
+
+  教育培训:
+    keywords:
+      - 培训
+      - 课程
+      - 学费
+      - 书籍
+      - 教材
+      - 考试
+      - 辅导
+    merchants: []
+    patterns:
+      - '.*教育.*'
+      - '.*培训.*'
+    exclude_keywords: []
+
+  人情往来:
+    keywords:
+      - 红包
+      - 转账
+      - 礼金
+      - 礼物
+    merchants: []
+    patterns:
+      - '.*红包.*'
+      - '.*转账.*'
+    exclude_keywords: []
+
+  金融保险:
+    keywords:
+      - 理财
+      - 基金
+      - 股票
+      - 保险
+      - 信用卡还款
+      - 贷款
+    merchants: []
+    patterns:
+      - '.*理财.*'
+      - '.*保险.*'
+    exclude_keywords: []
+
+  通讯充值:
+    keywords:
+      - 话费
+      - 流量
+      - 充值
+      - 宽带
+    merchants:
+      - 中国移动
+      - 中国联通
+      - 中国电信
+    patterns:
+      - '.*话费.*'
+      - '.*充值.*'
+    exclude_keywords: []
+
+# 排除规则：这些交易不计入支出统计
+exclude_transactions:
+  keywords:
+    - 提现
+    - 转入
+    - 退款
+    - 信用卡还款
+    - 余额宝
+  transaction_types:
+    - 转账收款
+    - 理财收益
+    - 退款
+
+# 分类置信度阈值
+confidence:
+  high: 0.9      # 关键词精确匹配
+  medium: 0.7    # 正则表达式匹配
+  low: 0.5       # 部分匹配
+
+# AI分类提示词模板
+ai_prompt_template: |
+  请为以下交易分类，只返回分类名称，不要解释：
+
+  交易信息：
+  - 日期：{date}
+  - 金额：{amount}
+  - 交易方：{counterparty}
+  - 描述：{description}
+
+  可选分类：餐饮美食、交通出行、购物消费、居家生活、文化娱乐、医疗健康、教育培训、人情往来、金融保险、通讯充值、其他
+
+  分类：
