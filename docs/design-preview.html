@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bill Analyzer — 下一阶段设计方案</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --orange: #d29922;
+    --purple: #bc8cff;
+    --pink: #f778ba;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; line-height: 1.6; padding: 2rem; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h1 { color: #fff; font-size: 2rem; margin-bottom: 0.5rem; }
+  .subtitle { color: var(--text-muted); font-size: 1rem; margin-bottom: 2rem; }
+
+  /* Phase headers */
+  .phase { margin-bottom: 2.5rem; }
+  .phase-header {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.75rem 1rem; border-radius: 8px 8px 0 0;
+    font-size: 1.1rem; font-weight: 600; color: #fff;
+  }
+  .phase-header.p0 { background: linear-gradient(135deg, #b62324, #da3633); }
+  .phase-header.p1 { background: linear-gradient(135deg, #9e6a03, #d29922); }
+  .phase-header .badge {
+    background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 4px;
+    font-size: 0.75rem; font-weight: 500;
+  }
+
+  /* Cards */
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 0 0 8px 8px; padding: 1.25rem; margin-bottom: 1rem;
+  }
+  .card + .card { border-radius: 8px; }
+  .card h3 { color: var(--accent); font-size: 1rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
+  .card h3 .num { background: var(--accent); color: var(--bg); border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; flex-shrink: 0; }
+  .card p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.75rem; }
+
+  /* Problem/Solution blocks */
+  .problem, .solution {
+    padding: 0.75rem 1rem; border-radius: 6px; margin: 0.5rem 0; font-size: 0.85rem;
+  }
+  .problem { background: rgba(248,81,73,0.1); border-left: 3px solid var(--red); }
+  .problem::before { content: "问题"; color: var(--red); font-weight: 600; display: block; margin-bottom: 0.25rem; }
+  .solution { background: rgba(63,185,80,0.1); border-left: 3px solid var(--green); }
+  .solution::before { content: "方案"; color: var(--green); font-weight: 600; display: block; margin-bottom: 0.25rem; }
+
+  /* Code blocks */
+  code { background: rgba(110,118,129,0.2); padding: 2px 6px; border-radius: 4px; font-size: 0.85rem; color: var(--accent); }
+  pre { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 1rem; overflow-x: auto; font-size: 0.8rem; margin: 0.5rem 0; }
+  pre code { background: none; padding: 0; }
+
+  /* Tags */
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 500; margin-right: 4px; }
+  .tag.fix { background: rgba(248,81,73,0.2); color: var(--red); }
+  .tag.feature { background: rgba(63,185,80,0.2); color: var(--green); }
+  .tag.test { background: rgba(188,140,255,0.2); color: var(--purple); }
+  .tag.perf { background: rgba(210,153,34,0.2); color: var(--orange); }
+
+  /* File references */
+  .file-ref { color: var(--purple); font-family: monospace; font-size: 0.8rem; }
+
+  /* Flow diagram */
+  .flow { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; }
+  .flow-step { background: var(--border); padding: 6px 14px; border-radius: 6px; font-size: 0.8rem; color: #fff; white-space: nowrap; }
+  .flow-arrow { color: var(--text-muted); font-size: 1.2rem; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.85rem; }
+  th { text-align: left; padding: 8px 12px; background: rgba(110,118,129,0.15); border-bottom: 1px solid var(--border); color: var(--text-muted); font-weight: 500; }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+
+  /* Recommendation highlight */
+  .rec { background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.3); border-radius: 6px; padding: 0.75rem 1rem; margin: 0.5rem 0; font-size: 0.85rem; }
+  .rec::before { content: "✦ 推荐"; color: var(--accent); font-weight: 600; display: block; margin-bottom: 0.25rem; }
+
+  /* Divider */
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+  /* Architecture diagram */
+  .arch-box { border: 1px dashed var(--border); border-radius: 8px; padding: 1rem; margin: 0.75rem 0; font-family: monospace; font-size: 0.8rem; white-space: pre; line-height: 1.4; color: var(--text-muted); overflow-x: auto; }
+
+  /* Summary stats */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin: 1rem 0; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center; }
+  .stat .value { font-size: 1.5rem; font-weight: 700; color: #fff; }
+  .stat .label { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Bill Analyzer — 下一阶段实施设计</h1>
+<p class="subtitle">方案 A：Bug-First 逐层推进 &nbsp;|&nbsp; P0 + P1 全覆盖 &nbsp;|&nbsp; 2026-05-19</p>
+
+<div class="stats">
+  <div class="stat"><div class="value" style="color:var(--red)">3</div><div class="label">P0 Bug 修复</div></div>
+  <div class="stat"><div class="value" style="color:var(--purple)">4</div><div class="label">测试模块</div></div>
+  <div class="stat"><div class="value" style="color:var(--green)">5</div><div class="label">P1 新功能</div></div>
+  <div class="stat"><div class="value" style="color:var(--accent)">1</div><div class="label">PDF 解析器</div></div>
+</div>
+
+<div class="flow">
+  <span class="flow-step" style="background:var(--red)">Phase 1: Bug修复</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step" style="background:var(--purple)">Phase 2: 测试覆盖</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step" style="background:var(--accent)">Phase 3: PDF解析</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step" style="background:var(--green)">Phase 4: UI增强</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step" style="background:var(--orange)">Phase 5: 新功能</span>
+</div>
+
+<hr>
+
+<!-- ========== P0: BUG FIXES ========== -->
+<div class="phase">
+  <div class="phase-header p0">
+    Phase 1 — Bug 修复
+    <span class="badge">P0 CRITICAL</span>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">1</span> to_dict() 补全缺失字段 <span class="tag fix">fix</span></h3>
+    <p class="file-ref">src/database/models.py:61-76</p>
+
+    <div class="problem">
+      <code>to_dict()</code> 只返回 12 个字段，缺少 <code>is_anomaly</code>、<code>anomaly_type</code>、<code>anomaly_score</code>、<code>anomaly_reason</code>、<code>is_subscription</code>、<code>subscription_group</code>、<code>subscription_name</code>、<code>subscription_cycle</code>、<code>payment_method</code>、<code>status</code> 等。
+      前端 <code>app.py:457</code> 的 <code>df.get('is_anomaly', False)</code> 始终为 False — 异常检测和订阅管理页面实际上形同虚设。
+    </div>
+
+    <div class="solution">
+      补全所有业务字段。不改方法签名，不改字段类型。
+    </div>
+
+    <pre><code># 修复后的 to_dict()
+def to_dict(self):
+    return {
+        'id': self.id,
+        'transaction_id': self.transaction_id,
+        'platform': self.platform,
+        'date': self.date.strftime('%Y-%m-%d %H:%M:%S') if self.date else None,
+        'amount': self.amount,
+        'type': self.type,
+        'category': self.category,
+        'subcategory': self.subcategory,
+        'counterparty': self.counterparty,
+        'description': self.description,
+        'payment_method': self.payment_method,
+        'status': self.status,
+        # 去重
+        'is_duplicate': self.is_duplicate,
+        'duplicate_confidence': self.duplicate_confidence,
+        # 分类
+        'classification_method': self.classification_method,
+        'classification_confidence': self.classification_confidence,
+        'is_verified': self.is_verified,
+        # 异常检测 ← 新增
+        'is_anomaly': self.is_anomaly or False,
+        'anomaly_type': self.anomaly_type,
+        'anomaly_score': self.anomaly_score,
+        'anomaly_reason': self.anomaly_reason,
+        # 订阅识别 ← 新增
+        'is_subscription': self.is_subscription or False,
+        'subscription_group': self.subscription_group,
+        'subscription_name': self.subscription_name,
+        'subscription_cycle': self.subscription_cycle,
+        'subscription_confidence': self.subscription_confidence,
+    }</code></pre>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">2</span> Session 生命周期修复 <span class="tag fix">fix</span></h3>
+    <p class="file-ref">src/database/operations.py — 所有查询方法</p>
+
+    <div class="problem">
+      <code>get_transactions()</code> 等方法在 <code>with self.get_session()</code> 内执行 <code>query.all()</code>，
+      返回 ORM 对象后 session 关闭。访问延迟加载属性会抛 <code>DetachedInstanceError</code>。
+      目前因 <code>to_dict()</code> 只取简单列未暴露，但补全字段后必然出问题。
+    </div>
+
+    <div class="rec">
+      在 session 内调用 <code>.to_dict()</code> 返回字典列表。调用方（<code>app.py</code>）改为直接处理字典，
+      去掉 <code>[t.to_dict() for t in transactions]</code> 这层转换。
+      <br><br>
+      影响范围：<code>operations.py</code> 的 <code>get_transactions()</code>、<code>get_uncategorized_transactions()</code>、
+      <code>get_all_categories()</code>；<code>app.py</code> 中约 8 处调用点。
+    </div>
+
+    <pre><code># operations.py — 修复后
+def get_transactions(self, ...) -> List[Dict[str, Any]]:
+    with self.get_session() as session:
+        query = session.query(Transaction)
+        # ... filters ...
+        return [t.to_dict() for t in query.all()]
+
+# app.py — 调用方简化
+transactions = st.session_state.db.get_transactions(...)
+if transactions:
+    df = pd.DataFrame(transactions)  # 直接用，不再 t.to_dict()</code></pre>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">3</span> bare except 修复 <span class="tag fix">fix</span></h3>
+    <p class="file-ref">app.py:88</p>
+
+    <div class="problem">
+      <code>except:</code> 吞掉所有异常（包括 KeyboardInterrupt、SystemExit），
+      侧边栏统计失败时完全静默，用户无法知道数据库连接是否正常。
+    </div>
+
+    <div class="solution">
+      改为 <code>except Exception:</code>，失败时 sidebar 显示 "—" 占位而非完全隐藏。
+    </div>
+  </div>
+</div>
+
+<hr>
+
+<!-- ========== P0: TESTS ========== -->
+<div class="phase">
+  <div class="phase-header p0">
+    Phase 2 — 基础测试覆盖
+    <span class="badge">P0</span>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">4</span> 测试基础设施 <span class="tag test">test</span></h3>
+
+    <div class="solution">
+      使用 <code>pytest</code> + <code>pytest-cov</code>。在 <code>tests/</code> 下按模块组织。
+      提供 <code>conftest.py</code> 包含：内存 SQLite fixture、样本 DataFrame fixture。
+    </div>
+
+    <table>
+      <tr><th>测试模块</th><th>覆盖内容</th><th>用例数(约)</th></tr>
+      <tr><td><code>tests/test_parsers.py</code></td><td>各平台解析器 parse + detect_format + 编码处理</td><td>12-16</td></tr>
+      <tr><td><code>tests/test_pipeline.py</code></td><td>Pipeline 6步流程、错误处理、边界情况</td><td>8-10</td></tr>
+      <tr><td><code>tests/test_classifiers.py</code></td><td>规则分类置信度、AI fallback mock</td><td>8-10</td></tr>
+      <tr><td><code>tests/test_database.py</code></td><td>CRUD、去重检测、统计查询、to_dict 完整性</td><td>10-12</td></tr>
+    </table>
+
+    <p>目标：核心路径覆盖率 >80%</p>
+  </div>
+</div>
+
+<hr>
+
+<!-- ========== PDF ========== -->
+<div class="phase">
+  <div class="phase-header p0">
+    Phase 3 — PDF 账单解析
+    <span class="badge">P0 NEW FEATURE</span>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">5</span> PDF 解析器 <span class="tag feature">feature</span></h3>
+    <p class="file-ref">新增 src/parsers/pdf_parser.py</p>
+
+    <div class="solution">
+      <strong>策略</strong>：先分析用户放入 <code>tests/samples/</code> 的样本，识别格式后再选择技术方案。<br><br>
+      <strong>技术选型</strong>：
+    </div>
+
+    <table>
+      <tr><th>库</th><th>适用场景</th><th>优缺点</th></tr>
+      <tr><td><code>pdfplumber</code></td><td>表格型PDF（银行流水）</td><td>表格提取精准，轻量</td></tr>
+      <tr><td><code>camelot</code></td><td>复杂表格</td><td>更强的表格检测，但依赖 Ghostscript</td></tr>
+      <tr><td><code>PyMuPDF (fitz)</code></td><td>通用文本提取</td><td>速度快，支持扫描件 OCR 预处理</td></tr>
+    </table>
+
+    <div class="rec">
+      优先使用 <code>pdfplumber</code>（表格提取能力强、无外部依赖），不够用时用 <code>PyMuPDF</code> 补充文本提取。
+      等样本放入后分析具体格式再确定。
+    </div>
+
+    <div class="arch-box">
+class PDFParser(BaseParser):
+    PLATFORM_NAME = "pdf"  # 或按实际平台区分
+
+    def detect_format(self, file_path: str) -> bool:
+        # 检查是否是PDF + 尝试识别平台（银行/支付宝/微信）
+
+    def parse(self, file_path: str) -> pd.DataFrame:
+        # 1. 提取表格 (pdfplumber)
+        # 2. 识别列映射（根据表头关键词）
+        # 3. 标准化为统一 Schema
+
+    def _detect_bank_type(self, tables) -> str:
+        # 根据表头特征识别银行类型
+        # 招商/工商/建设/... 各银行流水格式不同</div>
+
+    <p>同时更新 <code>app.py</code> 文件上传类型，增加 <code>pdf</code>。</p>
+  </div>
+</div>
+
+<hr>
+
+<!-- ========== P1: UI ========== -->
+<div class="phase">
+  <div class="phase-header p1">
+    Phase 4 — UI 增强
+    <span class="badge">P1</span>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">6</span> 手动分类 — 行内编辑 + 批量操作 <span class="tag feature">feature</span></h3>
+    <p class="file-ref">app.py — 交易记录页 + 分类管理页</p>
+
+    <div class="solution">
+      <strong>行内编辑</strong>：使用 Streamlit 的 <code>st.data_editor</code> 替换 <code>st.dataframe</code>，
+      <code>category</code> 和 <code>subcategory</code> 列设为下拉选择框（来源：数据库分类表）。
+      编辑后自动回写数据库，标记 <code>classification_method='manual'</code>。
+      <br><br>
+      <strong>批量操作</strong>：分类管理页增加多选勾选框 + "批量设置分类" 按钮。
+      用户勾选 → 选分类 → 一键应用。适合处理大量未分类交易。
+    </div>
+
+    <div class="arch-box">
+交易记录页改造：
+┌─────────────────────────────────────────────────┐
+│ 日期 │ 商户 │ 金额 │ 分类 [▼下拉] │ 子分类 [▼] │
+├──────┼──────┼──────┼──────────────┼────────────┤
+│ 5/18 │ 美团 │ 35.0 │ 餐饮美食 ▼   │ 外卖 ▼     │  ← 可编辑
+│ 5/17 │ 滴滴 │ 22.0 │ 交通出行 ▼   │ 打车 ▼     │
+└─────────────────────────────────────────────────┘
+         编辑后自动保存 → classification_method='manual'
+
+分类管理页增加：
+☑ 选择 → [设为: 餐饮美食 ▼] → [应用到 15 条记录]</div>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">7</span> 交易搜索和高级筛选 <span class="tag feature">feature</span></h3>
+    <p class="file-ref">app.py — 交易记录页</p>
+
+    <div class="solution">
+      <strong>新增</strong>：
+      <br>• 文本搜索框（匹配 counterparty + description）
+      <br>• 日期范围筛选
+      <br>• 金额范围滑块
+      <br>• 二级分类筛选（联动一级分类）
+      <br>• 异常/订阅快捷过滤开关
+      <br><br>
+      <code>DatabaseManager.get_transactions()</code> 增加 <code>keyword</code>、<code>amount_min</code>、<code>amount_max</code>、<code>subcategory</code> 参数。
+    </div>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">8</span> Excel 多 Sheet 导出 <span class="tag feature">feature</span></h3>
+    <p class="file-ref">新增 src/utils/exporters.py</p>
+
+    <div class="solution">
+      使用 <code>openpyxl</code>（已在依赖中）生成多 Sheet Excel：
+      <br>• Sheet 1: 全部交易记录
+      <br>• Sheet 2: 分类汇总统计
+      <br>• Sheet 3: 月度趋势数据
+      <br>• Sheet 4: 异常交易
+      <br>• Sheet 5: 订阅服务
+      <br><br>
+      在交易记录页和财务总览页各加一个"导出 Excel"按钮。
+    </div>
+  </div>
+</div>
+
+<hr>
+
+<!-- ========== P1: NEW FEATURES ========== -->
+<div class="phase">
+  <div class="phase-header p1">
+    Phase 5 — 新功能
+    <span class="badge">P1</span>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">9</span> 预算管理 <span class="tag feature">feature</span></h3>
+    <p class="file-ref">app.py 新增页面 + 复用 models_extended.py BudgetPlan 表</p>
+
+    <div class="solution">
+      <strong>数据模型</strong>：复用已有 <code>BudgetPlan</code> 表，每个一级分类一条预算记录，含 <code>category</code>、<code>monthly_limit</code>、<code>alert_threshold</code>（默认80%）。
+      <br><br>
+      <strong>UI</strong>：新增"💰 预算管理"页面（插入在订阅管理和分类管理之间）。
+    </div>
+
+    <div class="arch-box">
+预算管理页面布局：
+┌──────────────────────────────────────────────┐
+│ 💰 预算管理                                    │
+├──────────────────────────────────────────────┤
+│                                              │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐        │
+│  │本月总预算│ │已支出    │ │剩余额度  │        │
+│  │¥8,000   │ │¥5,234   │ │¥2,766   │        │
+│  └─────────┘ └─────────┘ └─────────┘        │
+│                                              │
+│  ████████████████░░░░░░░  65.4% 整体进度      │
+│                                              │
+│  分类预算：                                    │
+│  餐饮美食  ███████████████░  ¥1,800/¥2,000 ⚠️ │
+│  交通出行  ██████░░░░░░░░░  ¥400/¥1,000      │
+│  购物消费  ████████████░░░  ¥1,500/¥2,000    │
+│  居家生活  █████░░░░░░░░░░  ¥534/¥1,500      │
+│  ...                                         │
+│                                              │
+│  [编辑预算]                                    │
+│  ┌───────────────┬──────────┬──────────┐     │
+│  │ 分类          │ 月预算    │ 预警阈值  │     │
+│  ├───────────────┼──────────┼──────────┤     │
+│  │ 餐饮美食      │ ¥2,000   │ 80%      │     │
+│  │ 交通出行      │ ¥1,000   │ 80%      │     │
+│  └───────────────┴──────────┴──────────┘     │
+└──────────────────────────────────────────────┘</div>
+
+    <p>
+      <strong>预警逻辑</strong>：当某分类支出 ≥ <code>monthly_limit × alert_threshold</code> 时，
+      在仪表盘和预算页显示橙色警告；超支时显示红色警告。
+      侧边栏也增加超支分类数提示。
+    </p>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">10</span> 分类性能优化 <span class="tag perf">perf</span></h3>
+    <p class="file-ref">src/processors/pipeline.py:78-108</p>
+
+    <div class="problem">
+      Pipeline 中一级分类和二级分类都使用 <code>for idx, row in df.iterrows()</code> 逐行处理。
+      10,000 条记录时显著变慢。
+    </div>
+
+    <div class="solution">
+      <strong>规则分类向量化</strong>：将关键词匹配改为 <code>df['description'].str.contains()</code> 批量匹配，
+      用 <code>np.select</code> 一次性赋值分类。
+      <br><br>
+      <strong>AI分类批量化</strong>：低置信度记录收集后批量调用 Kimi API（已有 batch 支持），减少 API 往返。
+      <br><br>
+      目标：10,000 条记录分类时间 < 5 秒（不含 AI 调用）。
+    </div>
+  </div>
+</div>
+
+<hr>
+
+<!-- ========== CLEANUP ========== -->
+<div class="phase">
+  <div class="phase-header" style="background: linear-gradient(135deg, #484f58, #6e7681);">
+    附加 — 清理工作
+    <span class="badge">CLEANUP</span>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">+</span> 集成 models_extended.py</h3>
+    <p>将 <code>BudgetPlan</code> 表注册到 <code>init_db.py</code>，确保 <code>Base.metadata.create_all()</code> 能创建。
+    <code>SubscriptionPattern</code>、<code>AnomalyRecord</code>、<code>MonthlyStatistics</code> 暂不集成（当前用 DataFrame 内存处理已够用）。</p>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">+</span> 根目录清理</h3>
+    <p>将 <code>test_parser.py</code>、<code>test_csv_analysis.py</code>、<code>debug_excel.py</code>、<code>debug_pipeline.py</code>、
+    <code>inspect_bill.py</code>、<code>verify_app.py</code>、<code>check_env.py</code> 移入 <code>scripts/debug/</code> 或删除。
+    <code>sample_bill.csv</code>、<code>sample_bill.xls</code> 移入 <code>tests/fixtures/</code>。</p>
+  </div>
+</div>
+
+<hr>
+
+<!-- ========== EXECUTION ORDER ========== -->
+<div class="card" style="border-radius:8px; border-color: var(--accent);">
+  <h3 style="color:#fff; font-size:1.1rem;">📋 实施顺序总览</h3>
+
+  <table>
+    <tr><th>#</th><th>任务</th><th>优先级</th><th>依赖</th><th>预估</th></tr>
+    <tr><td>1</td><td>to_dict() 补全</td><td style="color:var(--red)">P0</td><td>无</td><td>30 min</td></tr>
+    <tr><td>2</td><td>Session 生命周期修复</td><td style="color:var(--red)">P0</td><td>#1</td><td>1 hr</td></tr>
+    <tr><td>3</td><td>bare except 修复</td><td style="color:var(--red)">P0</td><td>无</td><td>10 min</td></tr>
+    <tr><td>4</td><td>测试基础设施 + 用例</td><td style="color:var(--red)">P0</td><td>#1, #2</td><td>2-3 hr</td></tr>
+    <tr><td>5</td><td>PDF 解析器（待样本）</td><td style="color:var(--red)">P0</td><td>样本文件</td><td>3-4 hr</td></tr>
+    <tr><td>6</td><td>手动分类（行内+批量）</td><td style="color:var(--orange)">P1</td><td>#2</td><td>2 hr</td></tr>
+    <tr><td>7</td><td>交易搜索和高级筛选</td><td style="color:var(--orange)">P1</td><td>#2</td><td>1.5 hr</td></tr>
+    <tr><td>8</td><td>Excel 多 Sheet 导出</td><td style="color:var(--orange)">P1</td><td>#2</td><td>1.5 hr</td></tr>
+    <tr><td>9</td><td>预算管理</td><td style="color:var(--orange)">P1</td><td>#2, BudgetPlan集成</td><td>2-3 hr</td></tr>
+    <tr><td>10</td><td>分类性能优化</td><td style="color:var(--orange)">P1</td><td>#4(测试保护)</td><td>2 hr</td></tr>
+    <tr><td>+</td><td>清理工作</td><td style="color:var(--text-muted)">LOW</td><td>无</td><td>30 min</td></tr>
+  </table>
+</div>
+
+</div>
+</body>
+</html>
