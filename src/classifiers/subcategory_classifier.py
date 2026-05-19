@@ -1,5 +1,8 @@
 """二级分类器"""
+import re
 import yaml
+import numpy as np
+import pandas as pd
 from typing import Dict, Tuple, Optional
 
 
@@ -119,6 +122,89 @@ class SubcategoryClassifier:
                 break
 
         return max_confidence
+
+    def classify_batch(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        批量二级分类 - 使用向量化pandas操作替代逐行迭代
+
+        Args:
+            df: 包含 category, description, counterparty, is_duplicate 等字段的DataFrame
+
+        Returns:
+            添加了 subcategory 列的DataFrame
+        """
+        result_df = df.copy()
+
+        if 'subcategory' not in result_df.columns:
+            result_df['subcategory'] = None
+
+        # 只处理有分类且非重复的行
+        mask = df['category'].notna() & ~df['is_duplicate']
+        classifiable = df[mask]
+
+        if classifiable.empty:
+            return result_df
+
+        # 准备小写文本列
+        desc = classifiable['description'].fillna('').astype(str).str.lower()
+        counterparty_col = classifiable['counterparty'].fillna('').astype(str).str.lower()
+        combined = desc + ' ' + counterparty_col
+
+        # 按一级分类分组，组内向量化匹配
+        for primary_category, group in classifiable.groupby('category'):
+            if primary_category not in self.subcategory_rules:
+                continue
+
+            subcategories = self.subcategory_rules[primary_category]
+            group_idx = group.index
+            group_combined = combined.loc[group_idx]
+            group_counterparty = counterparty_col.loc[group_idx]
+            group_n = len(group_idx)
+
+            best_subcat = np.full(group_n, None, dtype=object)
+            best_conf = np.zeros(group_n)
+
+            for subcategory, rules in subcategories.items():
+                subcat_conf = np.zeros(group_n)
+
+                # 关键词匹配 -> 0.9
+                keywords = rules.get('keywords', [])
+                if keywords:
+                    escaped = [re.escape(str(kw).lower()) for kw in keywords if kw is not None]
+                    if escaped:
+                        pat = '|'.join(escaped)
+                        kw_match = group_combined.str.contains(pat, na=False).values
+                        np.maximum(subcat_conf, kw_match.astype(float) * 0.9, out=subcat_conf)
+
+                # 商户匹配 -> 0.95
+                merchants = rules.get('merchants', [])
+                if merchants:
+                    escaped = [re.escape(str(m).lower()) for m in merchants if m is not None]
+                    if escaped:
+                        pat = '|'.join(escaped)
+                        m_match = group_counterparty.str.contains(pat, na=False).values
+                        np.maximum(subcat_conf, m_match.astype(float) * 0.95, out=subcat_conf)
+
+                # 排除关键词 -> 置信度乘以 0.3
+                exclude_keywords = rules.get('exclude_keywords', [])
+                if exclude_keywords:
+                    escaped = [re.escape(str(ek).lower()) for ek in exclude_keywords if ek is not None]
+                    if escaped:
+                        pat = '|'.join(escaped)
+                        ex_match = group_combined.str.contains(pat, na=False).values
+                        subcat_conf = np.where(ex_match, subcat_conf * 0.3, subcat_conf)
+
+                # 更新最佳二级分类
+                better = subcat_conf > best_conf
+                best_conf = np.where(better, subcat_conf, best_conf)
+                best_subcat = np.where(better, subcategory, best_subcat)
+
+            # 只在置信度 > 0.6 时赋值
+            for i, idx in enumerate(group_idx):
+                if best_subcat[i] is not None and best_conf[i] > 0.6:
+                    result_df.at[idx, 'subcategory'] = best_subcat[i]
+
+        return result_df
 
     def get_subcategories(self, primary_category: str) -> list:
         """

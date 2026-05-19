@@ -70,9 +70,34 @@ class Transaction(Base):
             'category': self.category,
             'subcategory': self.subcategory,
             'counterparty': self.counterparty,
+            'counterparty_account': self.counterparty_account,
             'description': self.description,
-            'is_duplicate': self.is_duplicate,
-            'is_verified': self.is_verified
+            'payment_method': self.payment_method,
+            'status': self.status,
+            'original_category': self.original_category,
+            'note': self.note,
+            # 去重相关
+            'is_duplicate': self.is_duplicate or False,
+            'duplicate_group': self.duplicate_group,
+            'duplicate_confidence': self.duplicate_confidence,
+            # 分类相关
+            'classification_method': self.classification_method,
+            'classification_confidence': self.classification_confidence,
+            'is_verified': self.is_verified or False,
+            # 异常检测相关
+            'is_anomaly': self.is_anomaly or False,
+            'anomaly_type': self.anomaly_type,
+            'anomaly_score': self.anomaly_score,
+            'anomaly_reason': self.anomaly_reason,
+            # 订阅识别相关
+            'is_subscription': self.is_subscription or False,
+            'subscription_group': self.subscription_group,
+            'subscription_name': self.subscription_name,
+            'subscription_cycle': self.subscription_cycle,
+            'subscription_confidence': self.subscription_confidence,
+            # 时间戳
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+            'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M:%S') if self.updated_at else None,
         }
 
 

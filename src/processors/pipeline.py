@@ -71,40 +71,41 @@ class DataProcessingPipeline:
         except Exception as e:
             result['errors'].append(f"去重失败: {str(e)}")
 
-        # Step 3: 一级分类
+        # Step 3: 一级分类（向量化规则分类 + AI回退）
         try:
             df_to_classify = result['df'][~result['df']['is_duplicate']].copy()
 
-            for idx, row in df_to_classify.iterrows():
-                category, confidence, method = self.primary_classifier.classify(row.to_dict())
-                result['df'].at[idx, 'category'] = category
-                result['df'].at[idx, 'classification_confidence'] = confidence
-                result['df'].at[idx, 'classification_method'] = method
+            # 向量化规则分类
+            classified = self.primary_classifier.rule_classifier.classify_batch(df_to_classify)
+
+            # 将规则分类结果写回 result df
+            result['df'].loc[classified.index, 'category'] = classified['category']
+            result['df'].loc[classified.index, 'classification_confidence'] = classified['classification_confidence']
+            result['df'].loc[classified.index, 'classification_method'] = classified['classification_method']
+
+            # AI回退：仅对低置信度行逐行调用AI（无法向量化API调用）
+            if self.primary_classifier.use_ai and self.primary_classifier.ai_classifier:
+                threshold = self.primary_classifier.confidence_threshold
+                low_conf_mask = classified['classification_confidence'] < threshold
+                low_conf_rows = classified[low_conf_mask]
+
+                for idx, row in low_conf_rows.iterrows():
+                    try:
+                        ai_category = self.primary_classifier.ai_classifier.classify(row.to_dict())
+                        if ai_category in self.primary_classifier.rule_classifier.get_categories():
+                            result['df'].at[idx, 'category'] = ai_category
+                            result['df'].at[idx, 'classification_confidence'] = 0.9
+                            result['df'].at[idx, 'classification_method'] = 'ai'
+                    except Exception:
+                        pass  # 保留规则分类结果
 
             result['stats']['classified_count'] = len(df_to_classify)
         except Exception as e:
             result['errors'].append(f"一级分类失败: {str(e)}")
 
-        # Step 4: 二级分类
+        # Step 4: 二级分类（向量化）
         try:
-            for idx, row in result['df'].iterrows():
-                if pd.isna(row.get('category')) or row.get('is_duplicate'):
-                    continue
-
-                # 转换为字典并确保字符串字段是字符串类型
-                row_dict = row.to_dict()
-                # 确保关键字段是字符串
-                for key in ['description', 'counterparty', 'category']:
-                    if key in row_dict and row_dict[key] is not None:
-                        row_dict[key] = str(row_dict[key])
-                
-                subcategory, subcat_confidence = self.subcategory_classifier.classify(
-                    row_dict['category'],
-                    row_dict
-                )
-
-                if subcategory and subcat_confidence > 0.6:
-                    result['df'].at[idx, 'subcategory'] = subcategory
+            result['df'] = self.subcategory_classifier.classify_batch(result['df'])
         except Exception as e:
             result['errors'].append(f"二级分类失败: {str(e)}")
 
