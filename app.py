@@ -85,8 +85,10 @@ def show_sidebar():
         st.sidebar.metric("总支出", f"¥{stats['total_expense']:,.2f}")
         st.sidebar.metric("总收入", f"¥{stats['total_income']:,.2f}")
         st.sidebar.metric("结余", f"¥{stats['balance']:,.2f}")
-    except:
-        pass
+    except Exception:
+        st.sidebar.metric("总支出", "—")
+        st.sidebar.metric("总收入", "—")
+        st.sidebar.metric("结余", "—")
 
     return page
 
@@ -133,7 +135,7 @@ def show_dashboard():
     )
 
     if transactions:
-        df = pd.DataFrame([t.to_dict() for t in transactions])
+        df = pd.DataFrame(transactions)
 
         # 第一行：支出趋势 + 分类饼图
         col1, col2 = st.columns(2)
@@ -397,8 +399,8 @@ def show_transactions():
 
     with col2:
         categories = ["全部"] + list(set([
-            t.category for t in st.session_state.db.get_transactions(limit=1000)
-            if t.category
+            t['category'] for t in st.session_state.db.get_transactions(limit=1000)
+            if t.get('category')
         ]))
         category_filter = st.selectbox("一级分类", categories)
 
@@ -417,7 +419,7 @@ def show_transactions():
     )
 
     if transactions:
-        df = pd.DataFrame([t.to_dict() for t in transactions])
+        df = pd.DataFrame(transactions)
 
         # 选择显示列（包含二级分类）
         display_cols = [
@@ -453,7 +455,7 @@ def show_anomaly_page():
     transactions = st.session_state.db.get_transactions(limit=10000)
 
     if transactions:
-        df = pd.DataFrame([t.to_dict() for t in transactions])
+        df = pd.DataFrame(transactions)
         anomaly_df = df[df.get('is_anomaly', False) == True]
 
         if len(anomaly_df) > 0:
@@ -533,7 +535,7 @@ def show_subscription_page():
     transactions = st.session_state.db.get_transactions(limit=10000)
 
     if transactions:
-        df = pd.DataFrame([t.to_dict() for t in transactions])
+        df = pd.DataFrame(transactions)
         subscription_df = df[df.get('is_subscription', False) == True]
 
         if len(subscription_df) > 0:
@@ -637,7 +639,7 @@ def show_category_management():
     if uncategorized:
         st.warning(f"⚠️ 发现 {len(uncategorized)} 条未分类交易")
 
-        df = pd.DataFrame([t.to_dict() for t in uncategorized])
+        df = pd.DataFrame(uncategorized)
         st.dataframe(df, use_container_width=True)
 
         if st.button("使用AI批量分类"):

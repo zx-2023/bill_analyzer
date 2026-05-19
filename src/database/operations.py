@@ -61,12 +61,13 @@ class DatabaseManager:
             session.bulk_save_objects(transactions)
             return len(transactions)
 
-    def get_transaction_by_id(self, transaction_id: str) -> Optional[Transaction]:
+    def get_transaction_by_id(self, transaction_id: str) -> Optional[Dict[str, Any]]:
         """根据交易ID获取记录"""
         with self.get_session() as session:
-            return session.query(Transaction).filter(
+            result = session.query(Transaction).filter(
                 Transaction.transaction_id == transaction_id
             ).first()
+            return result.to_dict() if result else None
 
     def transaction_exists(self, transaction_id: str) -> bool:
         """检查交易是否存在"""
@@ -91,7 +92,7 @@ class DatabaseManager:
         trans_type: Optional[str] = None,
         is_duplicate: Optional[bool] = None,
         limit: Optional[int] = None
-    ) -> List[Transaction]:
+    ) -> List[Dict[str, Any]]:
         """
         查询交易记录
 
@@ -125,9 +126,9 @@ class DatabaseManager:
             if limit:
                 query = query.limit(limit)
 
-            return query.all()
+            return [t.to_dict() for t in query.all()]
 
-    def get_uncategorized_transactions(self, limit: Optional[int] = None) -> List[Transaction]:
+    def get_uncategorized_transactions(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """获取未分类的交易"""
         with self.get_session() as session:
             query = session.query(Transaction).filter(
@@ -141,7 +142,7 @@ class DatabaseManager:
             if limit:
                 query = query.limit(limit)
 
-            return query.all()
+            return [t.to_dict() for t in query.all()]
 
     # ==================== 统计查询 ====================
 
@@ -261,12 +262,25 @@ class DatabaseManager:
             session.flush()
             return category
 
-    def get_all_categories(self) -> List[Category]:
+    def get_all_categories(self) -> List[Dict[str, Any]]:
         """获取所有分类"""
         with self.get_session() as session:
-            return session.query(Category).filter(Category.is_active == True).order_by(
+            categories = session.query(Category).filter(Category.is_active == True).order_by(
                 Category.sort_order, Category.name
             ).all()
+            return [
+                {
+                    'id': c.id,
+                    'name': c.name,
+                    'parent_id': c.parent_id,
+                    'icon': c.icon,
+                    'color': c.color,
+                    'description': c.description,
+                    'is_active': c.is_active,
+                    'sort_order': c.sort_order,
+                }
+                for c in categories
+            ]
 
     # ==================== ImportHistory操作 ====================
 
