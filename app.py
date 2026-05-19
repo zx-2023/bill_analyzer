@@ -1,6 +1,7 @@
 """家庭财务数据分析系统 - Streamlit主应用"""
 import streamlit as st
 import pandas as pd
+import yaml
 from datetime import datetime, timedelta
 import os
 
@@ -38,6 +39,7 @@ from src.visualization.charts import (
     create_subscription_chart,
     create_anomaly_scatter
 )
+from src.utils.exporters import export_to_excel
 
 
 # 初始化session state
@@ -58,6 +60,55 @@ PLATFORM_PARSERS = {
 }
 
 
+def _prepare_excel_export(df: pd.DataFrame) -> bytes:
+    """Prepare data and call export_to_excel.
+
+    Builds category_stats, monthly_stats, anomaly and subscription DataFrames
+    from a transactions DataFrame, then returns the Excel file bytes.
+    """
+    # Ensure date is datetime
+    if 'date' in df.columns:
+        df = df.copy()
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+
+    # --- Category stats ---
+    category_stats_raw = st.session_state.db.get_category_stats()
+    cat_df = pd.DataFrame(category_stats_raw) if category_stats_raw else pd.DataFrame()
+    if not cat_df.empty and 'total_amount' in cat_df.columns:
+        total = cat_df['total_amount'].sum()
+        cat_df['percentage'] = (cat_df['total_amount'] / total * 100).round(2) if total else 0
+    else:
+        cat_df = pd.DataFrame(columns=['category', 'total_amount', 'count', 'percentage'])
+
+    # --- Monthly stats ---
+    expense_df = df[df['type'] == 'expense'] if 'type' in df.columns else pd.DataFrame()
+    income_df = df[df['type'] == 'income'] if 'type' in df.columns else pd.DataFrame()
+
+    if not expense_df.empty:
+        monthly_expense = expense_df.set_index('date').resample('M')['amount'].sum()
+    else:
+        monthly_expense = pd.Series(dtype=float)
+
+    if not income_df.empty:
+        monthly_income = income_df.set_index('date').resample('M')['amount'].sum()
+    else:
+        monthly_income = pd.Series(dtype=float)
+
+    all_months = monthly_expense.index.union(monthly_income.index)
+    monthly_stats = pd.DataFrame({
+        'month': all_months.strftime('%Y-%m'),
+        'total_expense': monthly_expense.reindex(all_months, fill_value=0).values,
+        'total_income': monthly_income.reindex(all_months, fill_value=0).values,
+    })
+    monthly_stats['balance'] = monthly_stats['total_income'] - monthly_stats['total_expense']
+
+    # --- Anomaly / subscription subsets ---
+    anomaly_df = df[df.get('is_anomaly', False) == True] if 'is_anomaly' in df.columns else pd.DataFrame()
+    subscription_df = df[df.get('is_subscription', False) == True] if 'is_subscription' in df.columns else pd.DataFrame()
+
+    return export_to_excel(df, cat_df, monthly_stats, anomaly_df, subscription_df)
+
+
 def show_sidebar():
     """侧边栏导航"""
     st.sidebar.title("💰 财务分析系统")
@@ -72,6 +123,7 @@ def show_sidebar():
             "📋 交易记录",
             "⚠️ 异常检测",
             "🔄 订阅管理",
+            "💰 预算管理",
             "🏷️ 分类管理",
             "⚙️ 系统设置"
         ]
@@ -89,6 +141,32 @@ def show_sidebar():
         st.sidebar.metric("总支出", "—")
         st.sidebar.metric("总收入", "—")
         st.sidebar.metric("结余", "—")
+
+    # 预算预警
+    try:
+        current_month = datetime.now().strftime('%Y-%m')
+        budgets = st.session_state.db.get_budgets(year_month=current_month)
+        if budgets:
+            year = datetime.now().year
+            month = datetime.now().month
+            date_from = datetime(year, month, 1)
+            if month == 12:
+                date_to = datetime(year + 1, 1, 1)
+            else:
+                date_to = datetime(year, month + 1, 1)
+            category_stats = st.session_state.db.get_category_stats(date_from, date_to)
+            spending_by_cat = {s['category']: s['total_amount'] for s in category_stats}
+
+            over_budget = []
+            for b in budgets:
+                spent = spending_by_cat.get(b['category'], 0)
+                if b['monthly_limit'] > 0 and spent / b['monthly_limit'] > b['alert_threshold']:
+                    over_budget.append(b['category'])
+
+            if over_budget:
+                st.sidebar.warning(f"⚠️ 预算预警: {', '.join(over_budget)}")
+    except Exception:
+        pass
 
     return page
 
@@ -192,6 +270,18 @@ def show_dashboard():
                 st.plotly_chart(fig_anomaly, use_container_width=True)
             else:
                 st.info("未检测到异常交易")
+
+        # 数据导出
+        st.markdown("---")
+        st.subheader("📥 数据导出")
+        excel_data = _prepare_excel_export(df)
+        st.download_button(
+            label="📊 导出为Excel",
+            data=excel_data,
+            file_name=f"financial_report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dashboard_excel_export"
+        )
 
     else:
         st.info("暂无交易数据，请先导入账单")
@@ -391,7 +481,14 @@ def show_transactions():
     """交易记录页面"""
     st.title("📋 交易记录")
 
-    # 筛选条件
+    # 加载二级分类配置
+    subcategory_map = {}
+    subcat_file = "config/subcategory_rules.yaml"
+    if os.path.exists(subcat_file):
+        with open(subcat_file, 'r', encoding='utf-8') as f:
+            subcategory_map = yaml.safe_load(f) or {}
+
+    # 第一行筛选：平台、一级分类、类型、显示数量
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
@@ -410,12 +507,54 @@ def show_transactions():
     with col4:
         limit = st.number_input("显示数量", min_value=10, max_value=1000, value=100)
 
+    # 第二行筛选：关键词搜索、日期范围
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        keyword = st.text_input("🔍 关键词搜索", placeholder="搜索交易对方或描述")
+
+    with col2:
+        date_from = st.date_input("开始日期", datetime.now() - timedelta(days=30), key="txn_date_from")
+
+    with col3:
+        date_to = st.date_input("结束日期", datetime.now(), key="txn_date_to")
+
+    # 第三行筛选：金额范围、二级分类、异常/订阅开关
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        amount_min = st.number_input("最小金额", min_value=0.0, value=0.0, step=10.0, format="%.2f")
+
+    with col2:
+        amount_max = st.number_input("最大金额", min_value=0.0, value=0.0, step=10.0, format="%.2f",
+                                      help="设为0表示不限制")
+
+    with col3:
+        # 根据选中的一级分类加载对应的二级分类选项
+        if category_filter != "全部" and category_filter in subcategory_map:
+            subcategory_options = ["全部"] + list(subcategory_map[category_filter].keys())
+        else:
+            subcategory_options = ["全部"]
+        subcategory_filter = st.selectbox("二级分类", subcategory_options)
+
+    with col4:
+        only_anomaly = st.checkbox("仅异常交易")
+        only_subscription = st.checkbox("仅订阅交易")
+
     # 查询
     transactions = st.session_state.db.get_transactions(
         platform=None if platform_filter == "全部" else platform_filter,
         category=None if category_filter == "全部" else category_filter,
         trans_type=None if type_filter == "全部" else type_filter,
-        limit=limit
+        date_from=datetime.combine(date_from, datetime.min.time()),
+        date_to=datetime.combine(date_to, datetime.max.time()),
+        limit=limit,
+        keyword=keyword if keyword else None,
+        amount_min=amount_min if amount_min > 0 else None,
+        amount_max=amount_max if amount_max > 0 else None,
+        subcategory=None if subcategory_filter == "全部" else subcategory_filter,
+        is_anomaly=True if only_anomaly else None,
+        is_subscription=True if only_subscription else None
     )
 
     if transactions:
@@ -435,14 +574,101 @@ def show_transactions():
             height=600
         )
 
+        # ==================== 手动分类编辑 ====================
+        st.markdown("---")
+        st.subheader("✏️ 手动分类编辑")
+
+        # 加载分类名称
+        rule_file = "config/classification_rules.yaml"
+        category_names = []
+        if os.path.exists(rule_file):
+            with open(rule_file, 'r', encoding='utf-8') as f:
+                rules = yaml.safe_load(f)
+            category_names = list(rules.get('categories', {}).keys())
+
+        if category_names:
+            # 准备可编辑的DataFrame
+            edit_cols = ['transaction_id', 'date', 'counterparty', 'description', 'amount', 'category', 'subcategory']
+            edit_available = [col for col in edit_cols if col in df.columns]
+            edit_df = df[edit_available].sort_values('date', ascending=False).copy()
+
+            edited_df = st.data_editor(
+                edit_df,
+                column_config={
+                    "transaction_id": st.column_config.TextColumn("交易ID", disabled=True),
+                    "date": st.column_config.TextColumn("日期", disabled=True),
+                    "counterparty": st.column_config.TextColumn("交易对方", disabled=True),
+                    "description": st.column_config.TextColumn("描述", disabled=True),
+                    "amount": st.column_config.NumberColumn("金额", disabled=True),
+                    "category": st.column_config.SelectboxColumn(
+                        "分类",
+                        options=category_names,
+                    ),
+                    "subcategory": st.column_config.TextColumn("二级分类"),
+                },
+                disabled=["transaction_id", "date", "counterparty", "description", "amount"],
+                hide_index=True,
+                use_container_width=True,
+                height=400,
+                key="transaction_editor"
+            )
+
+            if st.button("💾 保存修改", type="primary", key="save_inline_edits"):
+                change_count = 0
+                for idx in edit_df.index:
+                    orig_cat = edit_df.loc[idx, 'category'] if 'category' in edit_df.columns else None
+                    orig_subcat = edit_df.loc[idx, 'subcategory'] if 'subcategory' in edit_df.columns else None
+                    new_cat = edited_df.loc[idx, 'category'] if 'category' in edited_df.columns else None
+                    new_subcat = edited_df.loc[idx, 'subcategory'] if 'subcategory' in edited_df.columns else None
+
+                    # 统一空值比较
+                    orig_cat = orig_cat if pd.notna(orig_cat) else None
+                    orig_subcat = orig_subcat if pd.notna(orig_subcat) else None
+                    new_cat = new_cat if pd.notna(new_cat) else None
+                    new_subcat = new_subcat if pd.notna(new_subcat) else None
+
+                    if orig_cat != new_cat or orig_subcat != new_subcat:
+                        tid = edit_df.loc[idx, 'transaction_id']
+                        update_data = {
+                            'classification_method': 'manual',
+                            'is_verified': True,
+                            'classification_confidence': 1.0,
+                        }
+                        if new_cat is not None:
+                            update_data['category'] = new_cat
+                        if new_subcat is not None:
+                            update_data['subcategory'] = new_subcat
+                        st.session_state.db.update_transaction(tid, update_data)
+                        change_count += 1
+
+                if change_count > 0:
+                    st.success(f"✅ 已保存 {change_count} 条修改")
+                    st.rerun()
+                else:
+                    st.info("未检测到修改")
+        else:
+            st.warning("⚠️ 未找到分类规则配置文件，无法进行手动分类")
+
+        st.markdown("---")
+
         # 导出功能
-        csv = df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button(
-            label="📥 导出为CSV",
-            data=csv,
-            file_name=f"transactions_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv"
-        )
+        export_col1, export_col2 = st.columns(2)
+        with export_col1:
+            csv = df.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 导出为CSV",
+                data=csv,
+                file_name=f"transactions_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+        with export_col2:
+            excel_data = _prepare_excel_export(df)
+            st.download_button(
+                label="📊 导出为Excel",
+                data=excel_data,
+                file_name=f"financial_report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
     else:
         st.info("暂无交易记录")
 
@@ -627,6 +853,98 @@ def show_subscription_page():
         st.info("暂无交易数据，请先导入账单")
 
 
+def show_budget_page():
+    """预算管理页面"""
+    st.title("💰 预算管理")
+
+    # Current month selector
+    current_month = datetime.now().strftime('%Y-%m')
+    year_month = st.text_input("预算月份", value=current_month, help="格式：YYYY-MM")
+
+    # Get existing budgets and actual spending
+    budgets = st.session_state.db.get_budgets(year_month=year_month)
+
+    # Parse year_month for date range
+    from datetime import date
+    year, month = int(year_month[:4]), int(year_month[5:7])
+    date_from = datetime(year, month, 1)
+    if month == 12:
+        date_to = datetime(year + 1, 1, 1)
+    else:
+        date_to = datetime(year, month + 1, 1)
+
+    category_stats = st.session_state.db.get_category_stats(date_from, date_to)
+    spending_by_cat = {s['category']: s['total_amount'] for s in category_stats}
+
+    # Budget overview with progress bars
+    if budgets:
+        st.subheader("📊 预算执行情况")
+
+        for budget in budgets:
+            cat = budget['category']
+            limit = budget['monthly_limit']
+            spent = spending_by_cat.get(cat, 0)
+            pct = spent / limit if limit > 0 else 0
+            alert = budget['alert_threshold']
+
+            col1, col2, col3 = st.columns([2, 3, 1])
+            with col1:
+                st.write(f"**{cat}**")
+                st.caption(f"预算: ¥{limit:,.0f}")
+            with col2:
+                if pct > 1.0:
+                    st.progress(1.0)
+                    st.error(f"超支 ¥{spent - limit:,.0f}")
+                elif pct > alert:
+                    st.progress(pct)
+                    st.warning(f"¥{spent:,.0f} / ¥{limit:,.0f} ({pct:.0%})")
+                else:
+                    st.progress(pct)
+                    st.caption(f"¥{spent:,.0f} / ¥{limit:,.0f} ({pct:.0%})")
+            with col3:
+                st.metric("剩余", f"¥{max(limit - spent, 0):,.0f}")
+
+    st.markdown("---")
+
+    # Budget setting form
+    st.subheader("⚙️ 设置预算")
+
+    # Load categories from config
+    with open('config/classification_rules.yaml', 'r', encoding='utf-8') as f:
+        rules = yaml.safe_load(f)
+    category_names = list(rules.get('categories', {}).keys())
+
+    with st.form("budget_form"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            budget_cat = st.selectbox("分类", category_names)
+        with col2:
+            budget_amount = st.number_input("月度预算 (¥)", min_value=0.0, step=100.0, value=1000.0)
+        with col3:
+            budget_alert = st.slider("预警阈值", 0.5, 1.0, 0.8, 0.05)
+
+        if st.form_submit_button("保存预算", type="primary"):
+            st.session_state.db.set_budget(budget_cat, budget_amount, year_month, budget_alert)
+            st.success(f"✅ 已设置 {budget_cat} 预算: ¥{budget_amount:,.0f}/月")
+            st.rerun()
+
+    # Show existing budgets with delete option
+    if budgets:
+        st.subheader("📋 已设置的预算")
+        for budget in budgets:
+            col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+            with col1:
+                st.write(budget['category'])
+            with col2:
+                st.write(f"¥{budget['monthly_limit']:,.0f}")
+            with col3:
+                st.write(f"预警: {budget['alert_threshold']:.0%}")
+            with col4:
+                if st.button("删除", key=f"del_budget_{budget['id']}"):
+                    st.session_state.db.delete_budget(budget['id'])
+                    st.rerun()
+
+
 def show_category_management():
     """分类管理页面"""
     st.title("🏷️ 分类管理")
@@ -639,11 +957,78 @@ def show_category_management():
     if uncategorized:
         st.warning(f"⚠️ 发现 {len(uncategorized)} 条未分类交易")
 
-        df = pd.DataFrame(uncategorized)
-        st.dataframe(df, use_container_width=True)
+        df_uncat = pd.DataFrame(uncategorized)
+
+        # 显示未分类交易列表
+        display_cols_uncat = ['date', 'counterparty', 'description', 'amount', 'platform']
+        available_cols_uncat = [col for col in display_cols_uncat if col in df_uncat.columns]
+        st.dataframe(df_uncat[available_cols_uncat], use_container_width=True)
 
         if st.button("使用AI批量分类"):
             st.info("💡 AI分类功能需要配置Kimi API密钥（在系统设置中配置）")
+
+        # ==================== 手动批量分类 ====================
+        st.markdown("---")
+        st.subheader("📦 手动批量分类")
+
+        # 加载分类名称
+        rule_file_batch = "config/classification_rules.yaml"
+        category_names_batch = []
+        if os.path.exists(rule_file_batch):
+            with open(rule_file_batch, 'r', encoding='utf-8') as f:
+                rules_batch = yaml.safe_load(f)
+            category_names_batch = list(rules_batch.get('categories', {}).keys())
+
+        if category_names_batch and len(df_uncat) > 0:
+            # 构建选项列表
+            options_list = []
+            for _, row in df_uncat.iterrows():
+                label = f"{row.get('date', '')} | {row.get('counterparty', '')} | {row.get('description', '')} | ¥{row.get('amount', 0):.2f}"
+                options_list.append(label)
+
+            # 多选交易
+            selected_labels = st.multiselect(
+                "选择要分类的交易",
+                options=options_list,
+                help="选择一条或多条交易进行批量分类"
+            )
+
+            # 选择目标分类
+            target_category = st.selectbox(
+                "目标分类",
+                options=category_names_batch,
+                key="batch_target_category"
+            )
+
+            target_subcategory = st.text_input(
+                "二级分类（可选）",
+                key="batch_target_subcategory"
+            )
+
+            if st.button("🏷️ 批量分类", type="primary", key="batch_classify_btn"):
+                if not selected_labels:
+                    st.warning("请先选择要分类的交易")
+                else:
+                    # 找到选中的交易ID
+                    selected_indices = [options_list.index(label) for label in selected_labels]
+                    batch_count = 0
+                    for sel_idx in selected_indices:
+                        tid = df_uncat.iloc[sel_idx]['transaction_id']
+                        update_data = {
+                            'category': target_category,
+                            'classification_method': 'manual',
+                            'is_verified': True,
+                            'classification_confidence': 1.0,
+                        }
+                        if target_subcategory:
+                            update_data['subcategory'] = target_subcategory
+                        st.session_state.db.update_transaction(tid, update_data)
+                        batch_count += 1
+
+                    st.success(f"✅ 已将 {batch_count} 条交易分类为「{target_category}」")
+                    st.rerun()
+        elif not category_names_batch:
+            st.warning("⚠️ 未找到分类规则配置文件")
     else:
         st.success("✅ 所有交易已分类")
 
@@ -725,6 +1110,8 @@ def main():
         show_anomaly_page()
     elif page == "🔄 订阅管理":
         show_subscription_page()
+    elif page == "💰 预算管理":
+        show_budget_page()
     elif page == "🏷️ 分类管理":
         show_category_management()
     elif page == "⚙️ 系统设置":

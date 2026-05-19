@@ -104,29 +104,27 @@ class MonthlyStatistics(Base):
 
 
 class BudgetPlan(Base):
-    """预算计划表 - 用户设定的预算"""
+    """预算计划表"""
     __tablename__ = 'budget_plans'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(100), nullable=False)  # 预算名称
-    category = Column(String(50), index=True)  # 分类（可为空表示总预算）
-    subcategory = Column(String(50))  # 子分类
-
-    # 预算设置
-    amount = Column(Float, nullable=False)  # 预算金额
-    period_type = Column(String(20), nullable=False)  # monthly/yearly/weekly
-    start_date = Column(DateTime)
-    end_date = Column(DateTime)
-
-    # 预警设置
-    alert_threshold = Column(Float, default=0.8)  # 预警阈值（0.8表示80%）
-    is_alert_enabled = Column(Boolean, default=True)
-
-    # 状态
+    category = Column(String(50), nullable=False, index=True)
+    monthly_limit = Column(Float, nullable=False)
+    alert_threshold = Column(Float, default=0.8)  # 80% alert
+    year_month = Column(String(7), nullable=False, index=True)  # '2024-01'
     is_active = Column(Boolean, default=True)
 
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
-    def __repr__(self):
-        return f"<BudgetPlan(name={self.name}, category={self.category}, amount={self.amount})>"
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'category': self.category,
+            'monthly_limit': self.monthly_limit,
+            'alert_threshold': self.alert_threshold,
+            'year_month': self.year_month,
+            'is_active': self.is_active,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+            'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M:%S') if self.updated_at else None,
+        }

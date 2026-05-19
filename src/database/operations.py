@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 
 from .models import Base, Transaction, Category, ClassificationRule, ImportHistory
+from .models_extended import BudgetPlan
 
 
 class DatabaseManager:
@@ -91,7 +92,13 @@ class DatabaseManager:
         date_to: Optional[datetime] = None,
         trans_type: Optional[str] = None,
         is_duplicate: Optional[bool] = None,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
+        keyword: Optional[str] = None,
+        amount_min: Optional[float] = None,
+        amount_max: Optional[float] = None,
+        subcategory: Optional[str] = None,
+        is_anomaly: Optional[bool] = None,
+        is_subscription: Optional[bool] = None
     ) -> List[Dict[str, Any]]:
         """
         查询交易记录
@@ -104,6 +111,12 @@ class DatabaseManager:
             trans_type: 交易类型（income/expense）
             is_duplicate: 是否重复
             limit: 返回数量限制
+            keyword: 关键词搜索（匹配交易对方和描述）
+            amount_min: 最小金额
+            amount_max: 最大金额
+            subcategory: 二级分类筛选
+            is_anomaly: 是否异常交易
+            is_subscription: 是否订阅交易
         """
         with self.get_session() as session:
             query = session.query(Transaction)
@@ -120,6 +133,23 @@ class DatabaseManager:
                 query = query.filter(Transaction.type == trans_type)
             if is_duplicate is not None:
                 query = query.filter(Transaction.is_duplicate == is_duplicate)
+            if keyword:
+                query = query.filter(
+                    or_(
+                        Transaction.counterparty.contains(keyword),
+                        Transaction.description.contains(keyword)
+                    )
+                )
+            if amount_min is not None:
+                query = query.filter(Transaction.amount >= amount_min)
+            if amount_max is not None:
+                query = query.filter(Transaction.amount <= amount_max)
+            if subcategory:
+                query = query.filter(Transaction.subcategory == subcategory)
+            if is_anomaly is not None:
+                query = query.filter(Transaction.is_anomaly == is_anomaly)
+            if is_subscription is not None:
+                query = query.filter(Transaction.is_subscription == is_subscription)
 
             query = query.order_by(Transaction.date.desc())
 
@@ -298,3 +328,42 @@ class DatabaseManager:
             return session.query(ImportHistory).filter(
                 ImportHistory.file_hash == file_hash
             ).count() > 0
+
+    # ==================== BudgetPlan操作 ====================
+
+    def set_budget(self, category: str, monthly_limit: float, year_month: str, alert_threshold: float = 0.8) -> Dict[str, Any]:
+        """设置或更新预算"""
+        with self.get_session() as session:
+            existing = session.query(BudgetPlan).filter(
+                BudgetPlan.category == category,
+                BudgetPlan.year_month == year_month
+            ).first()
+            if existing:
+                existing.monthly_limit = monthly_limit
+                existing.alert_threshold = alert_threshold
+                session.flush()
+                return existing.to_dict()
+            else:
+                budget = BudgetPlan(
+                    category=category,
+                    monthly_limit=monthly_limit,
+                    alert_threshold=alert_threshold,
+                    year_month=year_month
+                )
+                session.add(budget)
+                session.flush()
+                return budget.to_dict()
+
+    def get_budgets(self, year_month: Optional[str] = None) -> List[Dict[str, Any]]:
+        """获取预算计划"""
+        with self.get_session() as session:
+            query = session.query(BudgetPlan).filter(BudgetPlan.is_active == True)
+            if year_month:
+                query = query.filter(BudgetPlan.year_month == year_month)
+            query = query.order_by(BudgetPlan.category)
+            return [b.to_dict() for b in query.all()]
+
+    def delete_budget(self, budget_id: int):
+        """删除预算"""
+        with self.get_session() as session:
+            session.query(BudgetPlan).filter(BudgetPlan.id == budget_id).delete()
